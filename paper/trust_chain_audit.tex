@@ -1,0 +1,422 @@
+% !TeX program = xelatex
+\documentclass[11pt,a4paper]{ctexart}
+
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{booktabs}
+\usepackage{geometry}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
+
+\geometry{margin=2.6cm}
+\setlist{itemsep=2pt,topsep=3pt,parsep=2pt}
+
+\newtheorem{theorem}{定理}[section]
+\newtheorem{proposition}[theorem]{命题}
+\newtheorem{lemma}[theorem]{引理}
+\newtheorem{corollary}[theorem]{推论}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{定义}
+\newtheorem{remark}[theorem]{注}
+\newtheorem{question}[theorem]{问题}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\T}{\mathbb{T}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\curl}{\operatorname{curl}}
+\newcommand{\diverg}{\operatorname{div}}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\norm}[1]{\left\lVert #1\right\rVert}
+\newcommand{\abs}[1]{\left\lvert #1\right\rvert}
+\newcommand{\ip}[2]{\left\langle #1,#2\right\rangle}
+
+\title{\bfseries 三维 Euler 与 Navier--Stokes 有限时间爆破的形式化\\[2pt]
+\large 一次关于信任链的审计}
+\author{《人工智能与数学》期末大作业}
+\date{2026 年 11 月 24 日}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+2026 年 11 月，三维无外力 Euler 方程与 Navier--Stokes 方程的有限时间爆破被宣布，并各自配有 Lean~4 形式化。本文不评价这些结论的新闻价值，而回答一个可操作的问题：\emph{这两个结论当前各自建立在什么之上}。我们把"机器已验证"这一笼统说法分解为一条五段式信任链，据此登记九条缺口（记为 $G_1$--$G_9$），并给出四条判定等级（机器验证 $M$、计算验证 $C$、需人审读 $R$、无证据 $N$）。主要结果：（i）Euler 一侧的 $42$ 个形式化节点抽样 $11$ 个，\emph{零处语义不同}，但残余风险集中于 $5$ 个合成节点；（ii）NS 一侧有一条\emph{真正需要新数学}的缺口——形式化所要求的压力梯度衰减 $\abs{\nabla q}\le C(1+\abs{y})^{-3}$ 既未被论文陈述，也非其假设的推论，而论文注记明确以"不需要压力界"为设计目标；（iii）两篇论文的\emph{证明层}均与其 Lean 版本存在分叉，故读者须知道自己在读哪一个；（iv）形式化的意外红利是可读性——它把论文中五处"存在某个绝对常数"具体化为可核对的数。\\
+\textbf{关键词}：形式化数学；信任链；Navier--Stokes 方程；Euler 方程；有限时间爆破；Lean~4
+\end{abstract}
+
+\tableofcontents
+\medskip
+
+%=====================================================================
+\section{引言}
+%=====================================================================
+
+\subsection{背景}
+
+1998 年，Fefferman 在 Clay 数学研究所的千禧年问题描述中把三维 Navier--Stokes 方程的整体正则性问题表述为一组互相排斥的陈述 (A)--(D)：或者解对一切光滑初值整体存在，或者存在有限时间爆破。同一份描述指出，相应的无粘极限——三维不可压缩 Euler 方程——的整体正则性同样未知。
+
+2026 年 11 月 20 日，两项结果同时公开：
+
+\begin{enumerate}[label=(\roman*)]
+\item \textsc{Alp\"oge--Buckmaster--Coiculescu} 构造了 $\T^3$ 上光滑、奇、无散的初值，使三维不可压缩 Euler 方程的解在有限时间 $T_*$ 失去正则性；速度保持有界，而原点处涡量发散，远离原点时解光滑延拓。该文 $56$ 页，并附有一份 Lean~4 形式化。
+\item \textsc{Alp\"oge--Buckmaster} 证明了三维无外力 Navier--Stokes 方程存在光滑初值导致有限时间爆破，爆破速率为 $\dot H^1$ 意义下的 $(T-t)^{-1/4}$，从而否定 Fefferman 的 (A)(B)、证明 (C)(D)。该文 $79$ 页，同样配有 Lean~4 形式化。
+\end{enumerate}
+
+两者都使用了大量 AI 辅助。Euler 一文 \S1.7 自述：不含外力的第一版证明由 Anthropic 的模型写出，"long and hard to read"，随后在作者指导下用 Claude 与 Codex 重写。NS 一文的 Lean 手册则给出相反的次序："The formalization came first: a first draft of the paper was obtained from the Lean proof, and the paper was then rewritten."
+
+\subsection{问题的提出}
+
+面向课程的目标原本是把这两份 AI 辅助证明"消化"为可读文本。阅读一手材料后这一目标被否定：两份论文\emph{本身已是}人可读的数学论文，Euler 一文的作者甚至已经完成了一轮可读化。重做无增量。
+
+真正稀缺的是另一件事。以 Euler 为例：论文 $56$ 页，其形式化包含 $42$ 个节点、$14\,199$ 条声明，作者在形式化手册中写道，"Both are checked by the Lean kernel relative to the statements encoded; \emph{neither is human-reviewed}." 也就是说，机器检验的是\emph{编码后的命题}，而"编码是否忠实"从未被逐条复核。NS 一侧更直接：作者声明形式化包是打了补丁的版本，且"The patched package \emph{was not rebuilt} when this repository was assembled."
+
+于是本文的问题是：
+
+\begin{question}
+这两个爆破定理，当前各自建立在什么之上？其中哪些环节由机器保证，哪些依赖人的判断，哪些尚无证据？
+\end{question}
+
+\subsection{本文的贡献}
+
+\begin{enumerate}[label=(\arabic*)]
+\item 提出一条五段式\textbf{信任链}（\S\ref{sec:method}）与四条判定等级，把"机器已验证"变成可枚举、可逐条判定的对象。
+\item 登记九条缺口 $G_1$--$G_9$ 并给出判定（\S\ref{sec:result}）。其中 $4$ 条判定为无缺口，$1$ 条为真缺口，$1$ 条为 $N$ 级，$2$ 条未决，$1$ 条不可完全解决。
+\item 对 Euler 的 $42$ 个节点作命题保真度抽样（$11/42$），给出\textbf{差异的五种形态}（\S\ref{sec:fidelity}），并观察到"形式化弱于论文"的案例数为零。
+\item 给出一个定量刻画（\S\ref{sec:curl}）：论文在 Corollary~8.3 处引用的 Beale--Kato--Majda 判据，被 Lean 版本替换为一段自足的时钟估计；本文复现该估计，并证明形式化所依赖的区间长度下界来自构造自带的字段而非导出结论。
+\item 指出一处\textbf{真缺口}（\S\ref{sec:gradq}）：形式化对压力梯度的衰减要求，论文既未陈述也未推导。
+\end{enumerate}
+
+%=====================================================================
+\section{方法与判定体系}\label{sec:method}
+%=====================================================================
+
+\subsection{信任链}
+
+一个数学结论的可信度不是布尔值，而是一条链。对本文的两个对象，链有五个环节：
+\begin{equation}\label{eq:chain}
+\underbrace{\text{原始问题}}_{\text{Fefferman}}
+\xrightarrow{\ (1)\ }
+\underbrace{\text{论文定理}}_{\text{56/79 页}}
+\xrightarrow{\ (2)\ }
+\underbrace{\text{Lean 命题}}_{\text{statement}}
+\xrightarrow{\ (3)\ }
+\underbrace{\text{Lean 证明}}_{\text{kernel}}
+\xrightarrow{\ (4)\ }
+\underbrace{\text{证书数据}}_{\text{区间算术}}
+\xrightarrow{\ (5)\ }
+\underbrace{\text{数值近似剖面}}_{\text{App. C}}
+\end{equation}
+第 (1)、(2) 两步是文本解释，第 (3) 步是机器检验，第 (4)、(5) 步是计算。对 Euler 一文，链在第 (4) 步之前终止（纯构造，无数据）；对 NS 一文，链的末端两环是决定性的。
+
+\subsection{判定等级}
+
+\begin{definition}[判定等级]
+对链上每一环，赋一个等级：
+\begin{description}[leftmargin=2.2em,style=nextline]
+\item[$M$（机器验证）] 内核加独立内核加公理审计，且有可复现的日志。
+\item[$C$（计算验证）] 区间算术或高精度数值，可由第三方复现。
+\item[$R$（需人审读）] 两份文本的语义比较，无形式化支撑。
+\item[$N$（无证据）] 材料不存在或未发布。
+\end{description}
+升级路径为 $N\to C$（取得数据并复算）、$C\to M$（把区间算术形式化）、$R\to M$（把"两份文本等价"写成形式命题并证明）。
+\end{definition}
+
+\subsection{一条方法论上的修正}
+
+形式化系统里的信息有三类，审计时必须分开：
+\begin{enumerate}[label=(\alph*)]
+\item \textbf{导出字段}（如 \texttt{Conclusions} 结构体的成员）——显式传递；
+\item \textbf{构造自带的性质}（被量化的构造对象的字段）——不经导出结构，但由构造定义给出；
+\item \textbf{库引理}——证明内部调用，不出现在任何陈述中。
+\end{enumerate}
+只看 (a) 会系统性低估论证强度。本文 \S\ref{sec:curl} 的判读错误即由此产生，后经 (b) 修正。
+
+%=====================================================================
+\section{两个证明的架构}
+%=====================================================================
+
+\subsection{Euler：Craik--Criminale 级联}
+
+设 $D(t)$ 光滑、迹零，且 $D'+D^2$ 对称。则线性场 $U=D(t)x$ 是 Euler 方程的精确解。在其上叠加
+\begin{equation}\label{eq:cc}
+w(t,x)=a(t)F\bigl(k(t)\cdot x\bigr),\qquad a\cdot k=0,
+\end{equation}
+其中 $F$ 是光滑奇 $1$-周期剖面。由于 $\operatorname{rank}(a\otimes k)=1$ 给出 $(w\cdot\nabla)w\equiv0$，$u=Dx+w$ 精确求解当且仅当
+\begin{equation}\label{eq:cceq}
+k'=-D^{\mathsf T}k,\qquad a'=-Da+p_wk,\qquad p_w=\frac{2\,k\cdot Da}{\abs{k}^2},\qquad k\cdot a=0 .
+\end{equation}
+归一化 $F'(0)=1$ 给出 $\nabla w(t,0)=a\otimes k$。
+
+设前一级波的波矢与振幅为 $k_p,a_p$，令 $E_1=k_p/\abs{k_p}$、$E_2=a_p/\abs{a_p}$、$E_3=E_1\times E_2$、$\sigma=\abs{a_p}\abs{k_p}$。前一级在原点贡献梯度 $\sigma E_2\otimes E_1$，新波看到 $D=B+\sigma E_2\otimes E_1$，其中 $B$ 在动标架内的两个分量
+\begin{equation}
+\nu=E_1\cdot BE_2>0,\qquad \eta=E_3\cdot BE_2>0,\qquad \eps=\eta/\nu\ll1 .
+\end{equation}
+在 $t=0$ 附近把 \eqref{eq:cceq} 与标架方程 $E_1'=-\nu E_2$、$E_2'=\nu E_1-\eta E_3$、$E_3'=\eta E_2$ 联立，得到主导系统
+\begin{equation}\label{eq:lin}
+\dot a_1=-2\nu a_2,\qquad \dot a_2=-(\sigma-\nu)a_1 ,
+\end{equation}
+其特征值为 $\pm\sqrt{2\nu(\sigma-\nu)}$。$a_2$ 前的系数 $-\nu$ 来自 $B$，另一个 $-\nu$ 来自标架转动；这一点在论文中未拆开，是阅读时的第一个障碍。
+
+压力项随标架转向而乘以因子 $\cos^2\phi\,(1-\eps\tan\phi)$，该因子在 $\tan\phi=1/\eps$ 处变号。峰值落在变号之后，于是增益为 $\exp(\eps^{-1/2})$ 的固定倍数。构造取 $\eps_j=L_{j+1}^{-2}$、$L_j=4\log\lambda_{j+1}$，使
+\begin{equation}
+\exp(\eps^{-1/2})=\exp(L_j)=\lambda_{j+1}^4 ,
+\end{equation}
+即"增益等于下一级频率的四次方"。这一步是把指数对齐的算术根源。
+
+误差由\emph{端点问题}消除：不指定修正 $b(0)$，而指定一阶位移在步末归零，$\xi(T,\cdot)=0$。设 $H=(D_x^2p)\circ X$，则
+\begin{equation}\label{eq:jacobi}
+\xi_{tt}+H\xi+(\nabla q)\circ X=f\circ X,\qquad \xi(0)=\xi(T)=0,
+\end{equation}
+这是沿测地线的 Jacobi 方程。乘以 $-\xi$ 分部积分得强制性
+\begin{equation}\label{eq:coerc}
+Q(\xi)=\int_0^T\!\!\int\bigl(\abs{\xi_t}^2-\xi\cdot H\xi\bigr)\,da\,dt\ \ge\ \Bigl(1-\tfrac{T^2}{2}\Bigr)\norm{\xi_t}^2\ \ge\ \tfrac12\norm{\xi_t}^2 ,
+\end{equation}
+只要 $H\le\mathrm{Id}$ 且 $T\le1$。$f=0$ 时 $Q=0$ 迫使 $\xi\equiv0$，故端点映射 $b(0)\mapsto\xi(T)$ 单射。
+
+\subsection{Navier--Stokes：离散自相似剖面与证书}
+
+对 $S>0$ 与线性等距 $R\in O(3)$，一个\emph{周期 $S$、等距 $R$ 的剖面}是光滑对 $(W,q)$，$W\not\equiv0$，满足
+\begin{equation}\label{eq:profile}
+\partial_sW+\tfrac12W+\tfrac12(y\cdot\nabla)W-\Delta W+(W\cdot\nabla)W+\nabla q=0,\quad \diverg W=0,
+\end{equation}
+\[
+W(s+S,y)=R\,W(s,R^{-1}y),\qquad \abs{W}\le C_W(1+\abs{y})^{-1}.
+\]
+由剖面造解 $u^*_T(t,x)=(T-t)^{-1/2}W\bigl(\log\frac{T}{T-t},\frac{x}{\sqrt{T-t}}\bigr)$ 即得爆破解。
+
+连续自相似的路线被封死：Ne\v{c}as--R\r{u}\v{z}i\v{c}ka--\v{S}ver\'ak 与 Tsai 证明，在自然可积性下非零的此类解不存在。故须走\emph{离散}自相似，此时解只能构造性地给出：先造一个满足显式不等式的近似解（\emph{证书}），再用不动点定理把它箍成精确解。证书由 $16$ 条编号条件刻画，其中含先验估计
+\begin{equation}\label{eq:apriori}
+\norm{(v,\beta)}_{w,\omega}\le c_1\norm{F}_H+[F]+c_2\abs{\ell(v)},
+\end{equation}
+二次型的单调性、残差的小性、以及参数集上的 Newton 步条件。这些条件最终由附录 C 的数值计算加 $128$ 位区间算术验证。
+
+\begin{remark}
+这正是 NS 一侧的结构脆弱点：\eqref{eq:chain} 的第 ④ 环是整条链唯一的经验环节，而它当前不可复现（\S\ref{sec:ns}，$G_1$）。
+\end{remark}
+
+%=====================================================================
+\section{审计结果}\label{sec:result}
+%=====================================================================
+
+\subsection{NS 一侧}\label{sec:ns}
+
+\begin{center}
+\begin{tabular}{@{}p{1.3cm}p{7.2cm}p{1.5cm}p{4.4cm}@{}}
+\toprule
+编号 & 断言 & 判定 & 依据 \\
+\midrule
+$G_1$ & 存在满足附录 B 十五条条件的证书数据 & $N$ & 论文摘要仅给哈希；Lean 手册："contains no data" \\
+$G_2$ & 打了 2026-11-20 补丁的包能编译 & 未复核 & 仓库说明："was not rebuilt" \\
+$G_3$ & 弱剖面 $\Rightarrow$ 光滑剖面（Prop.~7.11） & 无缺口 & 库定理 \texttt{periodicLerayProfileExists\_of\_weak} 恰为弱到强 \\
+$G_4$ & (1.3) 型剖面 $\Rightarrow$ 形式化所需的更强界 & \textbf{真缺口} & 见 \S\ref{sec:gradq} \\
+$G_5$ & 证书定义与 \S7.1--7.3 的差异 & 已判定 & 论文 \S7.3 末句把形式交给 App.~B.1；差异是表示性的 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent 其中 $G_3$ 的结案值得记录。论文 Prop.~7.11 断言：若 $\theta\mapsto W(\theta)$ 连续取值于 $X=\dot H^1_{\diverg}$、周期 $1$、不恒为零，且 $T_SW+(W\cdot\nabla)W\simeq0$，则存在光滑剖面 $\mathcal W$ 使 $\mathcal W(s,\cdot)=W(Ss)$ 于 $X$。Lean 手册称这一步"not part of any statement file"，读来源后确认库中有
+\[
+\texttt{periodicLerayProfileExists\_of\_weak}:\ \mathrm{Weak}\longrightarrow\mathrm{Periodic},
+\]
+即该步已证而仅未提升为 statement。故 $G_3$ 不是正确性缺口，而是接口缺口。
+
+\subsection{Euler 一侧}
+
+\begin{center}
+\begin{tabular}{@{}p{1.3cm}p{7.2cm}p{1.5cm}p{4.4cm}@{}}
+\toprule
+编号 & 断言 & 判定 & 依据 \\
+\midrule
+$G_6$ & $42$ 个节点忠实反映 TeX 引用图 & 抽样通过 & $11/42$，零处语义不同（\S\ref{sec:fidelity}） \\
+$G_7$ & Cor.~8.3 以 Prop.~8.2 替代 BKM 判据 & 无缺口 & \S\ref{sec:curl}：二者为不同证明，各自成立 \\
+$G_8$ & AI 参与未改变论证 & $R$ & 已找到 $3$ 个分叉实例，不可完全解决 \\
+$G_9$ & \texttt{Theorem71Conclusions} 的导出字段覆盖 Prop.~8.2 所需 & 闭合 & 四个所需字段均在 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{总表}
+
+九条缺口中：$4$ 条无缺口（$G_3,G_6,G_7,G_9$），$1$ 条已判定（$G_5$），$1$ 条真缺口（$G_4$），$1$ 条 $N$ 级（$G_1$），$1$ 条未复核（$G_2$），$1$ 条不可完全解决（$G_8$）。
+
+%=====================================================================
+\section{命题保真度的抽样检验}\label{sec:fidelity}
+%=====================================================================
+
+\subsection{抽样方案与结果}
+
+Euler 的 $42$ 个节点按"人的判断密度"排序后抽样 $11$ 个，覆盖主定理依赖闭包的大部分。对每个节点，把 Lean 的完整类型签名写成数学陈述，与论文原文逐子句并列，差异分为四类：(a) 纯记法；(b) 假设强弱；(c) 结论强弱；(d) 语义不同。
+
+\begin{center}
+\begin{tabular}{@{}lccccl@{}}
+\toprule
+节点 & (d) & 结论加强 & 结论略弱 & 假设加强 & 附注 \\
+\midrule
+\texttt{proposition\_2\_8}   & 0 & 2 & 0 & 1 & 冗余假设 $2\le T$ \\
+\texttt{proposition\_8\_2}   & 0 & 1 & 0 & 0 & 导出涡量下界 \\
+\texttt{theorem\_7\_1}       & 0 & 3 & 1 & 0 & 求和指标偏移，已证无害 \\
+\texttt{corollary\_8\_3}     & 0 & 1 & 0 & 0 & 有限性由类型给出 \\
+\texttt{proposition\_5\_2}   & 0 & 1 & 1 & 0 & 常数可依赖参数 \\
+\texttt{lemma\_5\_10}        & 0 & 2 & 0 & 1 & 逐阶界 \\
+\texttt{lemma\_5\_9}         & 0 & 1 & 0 & 1 & 小性条件显式 \\
+\texttt{theorem\_4\_2}       & 0 & 0 & 0 & 0 & 形式同、常数异 \\
+\texttt{lemma\_2\_4}         & 0 & 1 & 0 & 0 & 导出量的界 \\
+\texttt{theorem\_A\_1}       & 0 & 1 & 0 & 0 & 双向调整 \\
+\texttt{theorem\_1\_1}       & 0 & 1 & 0 & 0 & 极大性显式 \\
+\midrule
+合计 & $\mathbf{0}$ & $\mathbf{14}$ & $\mathbf{2}$ & $\mathbf{3}$ & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent 结论：\textbf{$11$ 个抽样节点中，没有一处是形式化弱于论文的}。"结论略弱"的两处均为表示层偏移（常数依赖、求和指标），后者已由"初始频率 $N$ 充分大"这一自由度吸收：因 $\lambda_i$ 单调，Lean 的和不超过论文的和的两倍，而两者皆为 $O(N^{-1})$。
+
+\subsection{差异的五种形态}
+
+$14$ 处"形式化多说"全部落入下列形态，可作为后续审计的模板：
+
+\begin{enumerate}[label=\textbf{(\Alph*)}]
+\item \textbf{常数显式化}（$5$ 处）：$C=18e^3$；$C_{\text{step}}=\Gamma(P)\mathsf D^b$；$C_n$；App.~A 的 $Q=2+\kappa^{-1}+\mu^{-1}+K_0+K_1+\Omega_0+\Omega_1$；式 (4.10) 的 $A$。
+\item \textbf{量化次序显式化}（$4$ 处）："for sufficiently large $N$" 写成 $\exists N_1\forall N\ge N_1$；"$E$ is the same for all amplitude vectors" 写成 $\exists\mathcal E$ 位于 $\forall a$ 之前。
+\item \textbf{补存在性/唯一性}（$3$ 处）。
+\item \textbf{证明内部式子升为结论}（$2$ 处）。
+\item \textbf{形式相同、常数不同}（$1$ 处）：形式化以 $\norm{M^{-1}}\le D$ 代替椭圆性常数 $D_-$，而 $D_-\ge D^{-2}$。
+\end{enumerate}
+
+\begin{remark}[一个反直觉的收益]
+形态 \textbf{(A)} 说明：\emph{形式化可以让论文更可读}。论文在 (2.23)、(7.3) 与 \S7 正文三处都写"绝对常数 $C$"，读者无从判断是否同一个；Lean 统一为 $18e^3$，并证明 (5.49) 与 (5.53) 的两个 $C_{\text{step}}$ 同为 $\Gamma(P)\mathsf D^b$。把"存在某个数"变成具体数，是形式化在可读性上的独特优势。
+\end{remark}
+
+%=====================================================================
+\section{一个定量刻画：Corollary 8.3 的涡量积分}\label{sec:curl}
+%=====================================================================
+
+论文的 Cor.~8.3 断言极大存在时间 $T_*=T_\infty\in(0,\infty)$，且
+\begin{equation}\label{eq:integrals}
+\int_0^{T_*}\norm{\nabla u(t)}_\infty\,dt=\infty,\qquad \int_0^{T_*}\norm{\curl u(t)}_\infty\,dt=\infty .
+\end{equation}
+其证明引用周期 Beale--Kato--Majda 判据。Lean 版本不使用该判据，而自行积分涡量下界。下面复现这段论证，它只有五行，但在论文中被一个外部判据替代。
+
+\begin{lemma}[时钟]
+设 $\lambda_j$ 为频率阶梯，$L_j=4\log\lambda_{j+1}$，令
+\begin{equation}\label{eq:tau}
+\tau_j=\lambda_{j-1}^{-1/8}L_{j+1}^{3},\qquad \eps_j=L_{j+1}^{-2}.
+\end{equation}
+则存在绝对常数 $C_{\mathrm{rate}}>0$，使第 $j$ 步的穿越时间 $\Delta t_j=t_{j+1}-t_j$ 满足
+\begin{equation}\label{eq:clock}
+\frac{2}{C_{\mathrm{rate}}}\,L_{j+1}\ \le\ \lambda_{j-1}^{1/8}\,\Delta t_j .
+\end{equation}
+\end{lemma}
+
+\begin{proof}[证明的要点]
+在归一化时间 $\tau=\eps_j t$ 下，波矢的转角满足 $\tan\phi\approx\eps_j\tau^{2}/2$；穿越判据 $\eta_+/\nu_+=\eps_{j+1}$ 等价于 $\tan\phi=O(1/\eps_{j+1})$，故 $\tau$ 的净增量有正下界。换回物理时间即得 \eqref{eq:clock}。$\qed$
+\end{proof}
+
+另一方面，Prop.~8.2 的证明给出涡量下界：对充分大的 $j$ 与 $t\in[t_j,t_{j+1})$，
+\begin{equation}\label{eq:curllower}
+\norm{\curl u(t,0)}\ \ge\ c_1\lambda_{j-1}^{1/8}-C_1\lambda_{j-1}^{1/32}-C_1\ \ge\ \tfrac{c_1}{2}\lambda_{j-1}^{1/8}.
+\end{equation}
+
+\begin{proposition}
+在引理条件下，
+\[
+\int_0^{T_*}\norm{\curl u}_\infty\,dt\ \ge\ \sum_j\Delta t_j\cdot\tfrac{c_1}{2}\lambda_{j-1}^{1/8}\ \ge\ \frac{c_1}{C_{\mathrm{rate}}}\sum_j L_{j+1}\ =\ \infty .
+\]
+\end{proposition}
+
+\begin{proof}
+逐项代入 \eqref{eq:clock}。因 $L_{j+1}=4\log\lambda_{j+2}\to\infty$，每一项趋于无穷，故级数发散。再用 $\norm{\curl u}_\infty\le C\norm{\nabla u}_\infty$ 得 \eqref{eq:integrals} 的第二式。
+\end{proof}
+
+\begin{remark}
+这段论证的关键不在估计的精度，而在\emph{区间长度的下界来自哪里}。它不在 \texttt{Theorem71Conclusions} 的导出字段里（那里只有上界 $\Delta t_j\le\tau_j$），而在被量化构造对象的 \texttt{crossing\_time} 字段中。初次审计时只看导出字段，故误判为缺口；这正是 \S\ref{sec:method} 中信息三分法的由来。
+\end{remark}
+
+%=====================================================================
+\section{一处真缺口：压力梯度的衰减}\label{sec:gradq}
+%=====================================================================
+
+形式化的剖面存在性假设 \texttt{PeriodicSimilarityProfileExists} 比论文 (1.3) 多要求
+\begin{equation}\label{eq:extra}
+\abs{\nabla^jW(s,y)}\le C(1+\abs{y})^{-1-j}\ (j=0,1,2),\qquad \abs{\nabla q(s,y)}\le C(1+\abs{y})^{-3}.
+\end{equation}
+Lean 手册的理由是：$j=1,2$ 由内部估计（论文 Remark~1.2），而 $\nabla q$ 一条"a standard consequence of the bounds on $W$, since the equation determines the pressure gradient".
+
+论文 Remark~1.2 确实覆盖 $j=1$（即 (1.3) 第二条）与 $j=2$，且明确指出所用的内部估计"requires no bound on the pressure"，并在末尾断言 Theorem~1.1 的假设可退化为"a nonzero smooth solution of (1.2) with the first bound of (1.3)"。换言之，作者是\emph{刻意}避开压力界的。
+
+那么 $\nabla q$ 一条能否由 (1.3) 推出？由 \eqref{eq:profile} 解出
+\begin{equation}\label{eq:gradq}
+\nabla q=-\partial_sW-\tfrac12W-\tfrac12(y\cdot\nabla)W+\Delta W-(W\cdot\nabla)W .
+\end{equation}
+在 $\abs{W}\le C(1+\abs{y})^{-1}$ 与 $\abs{\nabla^2W}\le C(1+\abs{y})^{-3}$ 下逐项估计：
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+项 & 量级 \\
+\midrule
+$\tfrac12W$ & $O\bigl((1+\abs{y})^{-1}\bigr)$ \\
+$\tfrac12(y\cdot\nabla)W$ & $O\bigl(\abs{y}(1+\abs{y})^{-2}\bigr)=O\bigl((1+\abs{y})^{-1}\bigr)$ \\
+$\Delta W$ & $O\bigl((1+\abs{y})^{-3}\bigr)$ \\
+$(W\cdot\nabla)W$ & $O\bigl((1+\abs{y})^{-3}\bigr)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+两个 $O((1+\abs{y})^{-1})$ 的项都是主项，不会自相抵消。故逐项估计只给 $\abs{\nabla q}=O((1+\abs{y})^{-1})$，而 \eqref{eq:extra} 要求的是 $(1+\abs{y})^{-3}$。
+
+要得到后者，须改走压力方程的整体估计
+\begin{equation}\label{eq:poisson}
+-\Delta q=\partial_i\partial_j(W_iW_j),
+\end{equation}
+用 $W\otimes W$ 的源 $O(\abs{y}^{-2})$ 在无穷远的 Newton 势衰减。这条路论文未走，Remark~1.2 的措辞亦表明作者不打算走。
+
+\begin{question}[$\mathrm{P1}'$]
+设 $W$ 是 \eqref{eq:profile} 的光滑解，满足 $\abs{W}\le C(1+\abs{y})^{-1}$。能否推出 $\abs{\nabla q}\le C'(1+\abs{y})^{-3}$？或者，存在反例？
+\end{question}
+
+这是本次审计中唯一需要新数学的缺口。它不难，但也不是一行估计——它需要 \eqref{eq:poisson} 的远场分析，并可能要求 $W$ 的角向结构（例如角向平均为零）。在数据发布之前，这是 NS 一侧结论强度的实际限制之一。
+
+%=====================================================================
+\section{结论}
+%=====================================================================
+
+\begin{enumerate}[label=(\arabic*)]
+\item 两篇论文的\textbf{命题层是忠实的}。Euler 抽样 $11/42$，零处语义不同；NS 未抽样，但其证书定义与附录 B.1 的表示一致。
+\item 两篇论文的\textbf{证明层与 Lean 存在分叉}。Euler 在 Cor.~8.3（BKM 判据对时钟引理），NS 在 $\R^3$ 主链（弱 $\to$ 光滑 $\to$ 爆破 对 弱 $\to$ 爆破）。分叉不是缺陷，但读者必须知道自己在读哪一个。
+\item NS 一侧有\textbf{一处真缺口}：压力梯度的衰减界，论文既未陈述也未推导（\S\ref{sec:gradq}）。
+\item NS 一侧有\textbf{一个不可消除的 $N$ 级}：证书数据未发布。在它升为 $C$ 级之前，"NS 被否定解决"的准确形式必须带上"在存在满足附录 B 条件的数据这一前提下"。
+\item 形式化的最大意外红利是\textbf{可读性}：它把论文中五处"存在某个绝对常数"具体化为可核对的数，并证明了两处同名常数是同一个。
+\end{enumerate}
+
+\subsection*{后续方向}
+
+\begin{enumerate}[label=(\roman*)]
+\item $\mathrm{P1}'$：\eqref{eq:poisson} 的远场估计或反例。这是唯一需要新数学处，也是一个可独立完成的小课题。
+\item $G_2$：以本地 Lean~4.36.0 工具链重建 NS 包（需先取得 Mathlib 缓存）。
+\item $G_6$ 的收尾：Euler 的 $31$ 个未抽样节点中，\texttt{proposition\_5\_11}、\texttt{theorem\_5\_6}、\texttt{lemma\_5\_8}（\S5 合成）与 \texttt{proposition\_8\_1}、\texttt{proposition\_8\_4}（\S8 极限）风险最高。
+\item $G_1$：证书数据发布后，用 $128$ 位区间算术复算附录 B 的十五条条件。
+\end{enumerate}
+
+%=====================================================================
+\begin{thebibliography}{99}\small
+\bibitem{cc} L.~Alp\"oge, T.~Buckmaster, M.~P.~Coiculescu, \emph{Finite-time singularity formation for the three-dimensional Euler equations}, preprint, Nov.~2026; \url{https://github.com/mcoiculescu/EulerBlowupPublic}.
+\bibitem{ns} L.~Alp\"oge, T.~Buckmaster, \emph{Finite-time blow-up for the Navier--Stokes equations}, preprint, 20 Nov.~2026; \url{https://github.com/tristanbuckmaster/navier-stokes}.
+\bibitem{fefferman} C.~L.~Fefferman, \emph{Existence and smoothness of the Navier--Stokes equation}, Clay Mathematics Institute Millennium Prize Problems, 2000.
+\bibitem{nrs} J.~Ne\v{c}as, M.~R\r{u}\v{z}i\v{c}ka, V.~{\v{S}}ver\'ak, \emph{On Leray's self-similar solutions of the Navier--Stokes equations}, Acta Math.~176 (1996).
+\bibitem{tsai} T.-P.~Tsai, \emph{On Leray's self-similar solutions of the Navier--Stokes equations satisfying local energy estimates}, Arch.~Rational Mech.~Anal.~143 (1998).
+\bibitem{bkm} J.~T.~Beale, T.~Kato, A.~Majda, \emph{Remarks on the breakdown of smooth solutions for the 3-D Euler equations}, Comm.~Math.~Phys.~94 (1984).
+\bibitem{lean} The Lean and Mathlib communities, \emph{Lean verification of the Riemann hypothesis}, Lean community blog, 21 Nov.~2026.
+\bibitem{sutherland} A.~Sutherland, \emph{Verification files for the Lean proof of the Riemann hypothesis}, \url{https://math.mit.edu/~drew/grh/}, 2026.
+\bibitem{tao} T.~Tao, \emph{Unforced Euler singularity, unforced Navier--Stokes singularity, and the Generalized Riemann Hypothesis}, blog, 20 Nov.~2026.
+\bibitem{leiden} \emph{Leiden Declaration on Artificial Intelligence and Mathematics}, 2 June 2026; \url{https://leidendeclaration.ai/}.
+\end{thebibliography}
+
+\appendix
+\section{来源台账与可复现性}
+
+全部一手材料以 SHA-256 校验后存于工作区 \texttt{sources/}，其中核心九份：Euler 论文（\texttt{euler\_cc.pdf}）、NS 论文（\texttt{ns\_paper.pdf}）、两个仓库的 README 与形式化手册、Euler 的 42 节点 spine 文件与引用台账决策文件。审计本身只需文本工具与两份论文，\emph{不需 Lean}（$G_2$ 除外）。数值核对脚本 \texttt{code/cc\_amplification.py} 对 \eqref{eq:cceq} 直接积分，在 $9$ 组参数下确认了 \eqref{eq:lin} 的增长率 $\sqrt{2\nu(\sigma-\nu)}$（相对误差 $\le2\times10^{-8}$）与转向律 $\tan\phi\sim(\sigma+\nu)\eta t^{2}$。
+
+\end{document}

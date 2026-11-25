@@ -1,0 +1,5 @@
+name = "lean_env"
+defaultTargets = ["Main"]
+
+[[lean_lib]]
+name = "Main"

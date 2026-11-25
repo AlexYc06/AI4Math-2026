@@ -1,0 +1,212 @@
+% !TeX program = xelatex
+\documentclass[aspectratio=169,11pt,fontset=windows]{ctexbeamer}
+
+\usetheme{Madrid}
+\usecolortheme{seahorse}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[frame number]
+
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+
+\newcommand{\abs}[1]{\left\lvert #1\right\rvert}
+\newcommand{\norm}[1]{\left\lVert #1\right\rVert}
+\newcommand{\curl}{\operatorname{curl}}
+
+\title[形式化审计]{三维 Euler 与 Navier--Stokes 有限时间爆破的形式化审计}
+\author{《人工智能与数学》期末大作业}
+\institute{阶段性进展汇报}
+\date{2026 年 11 月}
+
+\begin{document}
+
+%---------------------------------------------------------------
+\begin{frame}
+  \titlepage
+\end{frame}
+
+%---------------------------------------------------------------
+\begin{frame}{两项结果与核查的必要性}
+  \small
+  \begin{block}{Euler 方程（2026 年 11 月，56 页）}
+    \footnotesize
+    三维无外力 Euler 方程存在光滑周期初值，使解在有限时间失去正则性。速度保持有界，原点处涡量发散。
+  \end{block}
+  \begin{block}{Navier--Stokes 方程（2026 年 11 月，79 页）}
+    \footnotesize
+    存在光滑初值导致有限时间爆破，速率为 $(T-t)^{-1/4}$。否定 Fefferman 表述中的 (A)(B)，证明 (C)(D)。
+  \end{block}
+
+  \vspace{2mm}
+  \begin{itemize}
+    \setlength{\itemsep}{2pt}
+    \item 两份论文各附一份 Lean 4 形式化。Lean 把命题写成程序，由内核逐条检查。
+    \item Euler 形式化说明：两个证明都经内核检查，\textbf{都未经过人工复核}。
+    \item Navier--Stokes 形式化说明：包是打过补丁的版本，\textbf{打包时未重新构建}。
+  \end{itemize}
+
+  \vspace{2mm}
+  \centering
+  \textbf{问题是：这两份形式化覆盖了什么，没有覆盖什么。}
+\end{frame}
+
+%---------------------------------------------------------------
+\begin{frame}{核查方法}
+  \small
+  把从原始问题到数值证据的过程分成五个环节，每个环节标一个等级。
+
+  \vspace{2mm}
+  \begin{columns}[T]
+    \begin{column}{0.44\textwidth}
+      \textbf{五个环节}
+      \footnotesize
+      \begin{enumerate}
+        \setlength{\itemsep}{1pt}
+        \item 原始问题的表述
+        \item 论文中的定理陈述
+        \item Lean 中的命题编码
+        \item Lean 的证明
+        \item 证书数据与数值计算
+      \end{enumerate}
+    \end{column}
+    \begin{column}{0.52\textwidth}
+      \textbf{四个等级}
+      \footnotesize
+      \begin{itemize}
+        \setlength{\itemsep}{2pt}
+        \item[$M$] 机器验证：内核与独立内核均通过
+        \item[$C$] 计算验证：区间算术可复现
+        \item[$R$] 需人阅读两份文本作比较
+        \item[$N$] 缺少材料
+      \end{itemize}
+    \end{column}
+  \end{columns}
+
+  \vspace{3mm}
+  \begin{block}{编号}
+    \footnotesize
+    需要核查的断言编号为 $G_1$ 到 $G_9$。下文出现的 $G_4$ 指第四项断言。
+  \end{block}
+\end{frame}
+
+%---------------------------------------------------------------
+\begin{frame}{发现一：形式化多要求了一个界（$G_4$）}
+  \small
+  \begin{block}{论文对自相似剖面的要求}
+    \footnotesize
+    剖面由一对函数 $(W,q)$ 描述：$W$ 为速度场，$q$ 为压力，$y$ 为自相似变量（以奇点为中心、按 $\sqrt{T-t}$ 缩放后的坐标）。\\[1pt]
+    论文只要求 $\abs{W(s,y)}\le C_W(1+\abs{y})^{-1}$。\\[1pt]
+    Remark 1.2：$W$ 的一、二阶导数衰减可由内部估计推出，该估计\textbf{不需要对压力作任何假设}。
+  \end{block}
+
+  \begin{block}{形式化的额外要求}
+    \footnotesize
+    $\abs{\nabla q(s,y)}\le C(1+\abs{y})^{-3}$。\quad Lean 仓库给出的理由：「压力梯度由方程决定」。
+  \end{block}
+
+  \vspace{1mm}
+  \centering
+  \footnotesize
+  逐项核对这个理由。
+\end{frame}
+
+%---------------------------------------------------------------
+\begin{frame}{发现一：逐项估计只到负一次幂}
+  \small
+  由剖面方程解出压力梯度：
+  \[
+    \nabla q=-\partial_sW-\tfrac12W-\tfrac12(y\cdot\nabla)W+\Delta W-(W\cdot\nabla)W
+  \]
+
+  \begin{columns}[T]
+    \begin{column}{0.46\textwidth}
+      \footnotesize
+      \begin{tabular}{@{}ll@{}}
+        \toprule
+        项 & 量级 \\
+        \midrule
+        $\tfrac12W$ & $(1+\abs{y})^{-1}$ \\
+        $\tfrac12(y\cdot\nabla)W$ & $(1+\abs{y})^{-1}$ \\
+        $\Delta W$ & $(1+\abs{y})^{-3}$ \\
+        $(W\cdot\nabla)W$ & $(1+\abs{y})^{-3}$ \\
+        \bottomrule
+      \end{tabular}
+    \end{column}
+    \begin{column}{0.50\textwidth}
+      \footnotesize
+      前两项都是主项，不会相互抵消。\\[3pt]
+      逐项相加得到 $(1+\abs{y})^{-1}$，达不到形式化要求的 $(1+\abs{y})^{-3}$。
+    \end{column}
+  \end{columns}
+
+  \vspace{2mm}
+  \begin{alertblock}{结论}
+    \footnotesize
+    要得到负三次幂，须改从 $-\Delta q=\partial_i\partial_j(W_iW_j)$ 作远场整体估计。论文未采用此路线，Remark 1.2 的措辞也说明作者有意避开压力界。\\[2pt]
+    形式化的假设严格强于论文，故其定理严格弱于论文。这是核查中唯一一处既未被论文陈述、又未由假设推出的地方。
+  \end{alertblock}
+\end{frame}
+
+%---------------------------------------------------------------
+\begin{frame}{发现二：两份不同的证明}
+  \small
+  \begin{block}{Euler 论文 Corollary 8.3}
+    \footnotesize
+    结论：极大存在时间有限，且 $\int_0^{T_*}\norm{\curl u}_\infty\,dt=\infty$。\\[1pt]
+    论文的证明引用周期情形的 \textbf{Beale--Kato--Majda 判据}，一句话完成。
+  \end{block}
+
+  \begin{block}{Lean 版本}
+    \footnotesize
+    不使用该判据。利用 Proposition 8.2 的涡量下界，在相邻两级波的激活时刻之间积分。\\[1pt]
+    需要的区间长度下界不在 Theorem 7.1 的导出结论中，只存在于构造对象自身的字段里。\\[1pt]
+    整理后为五行：记 $\lambda_j$ 为第 $j$ 级频率，$L_j=4\log\lambda_{j+1}$ 为增益的对数，则每个区间的贡献与 $L_{j+1}$ 同阶，而 $L_{j+1}\to\infty$。
+  \end{block}
+
+  \vspace{1mm}
+  \centering
+  \footnotesize
+  \textbf{形式化检验的是一份与论文不同的证明。结论相同，路径不同。}
+\end{frame}
+
+%---------------------------------------------------------------
+\begin{frame}{一条容易误解之处}
+  \small
+  \begin{block}{仓库说明中的一句话}
+    \footnotesize
+    「从弱剖面到光滑剖面这一步，不在任何 statement 文件中。」
+  \end{block}
+
+  \begin{itemize}
+    \setlength{\itemsep}{3pt}
+    \item 容易被理解为：这一步没有证明。
+    \item 实际情形：库中存在一条定理，内容正是弱剖面蕴含剖面。
+    \item 它没有被提升为 statement，因此不在比较器检查的范围内。
+  \end{itemize}
+
+  \vspace{3mm}
+  \centering
+  \textbf{形式化验证的边界在接口，不在证明。}
+\end{frame}
+
+%---------------------------------------------------------------
+\begin{frame}{后续工作}
+  \small
+  \begin{enumerate}
+    \setlength{\itemsep}{4pt}
+    \item \textbf{补上压力梯度的衰减估计}，或构造反例。\\[1pt]
+      \footnotesize 由 $-\Delta q=\partial_i\partial_j(W_iW_j)$ 作远场分析；可独立完成。
+    \item \textbf{重建 Navier--Stokes 的形式化包}\\[1pt]
+      \footnotesize 核对「补丁包未重新构建」这一说明。需对应版本的 Lean 与 Mathlib 缓存。
+    \item \textbf{完成 Euler 的命题比对}\\[1pt]
+      \footnotesize 42 个节点中已比对 11 个；剩余 31 个里，第 5 节的合成步骤与第 8 节的极限论证风险最高。
+    \item \textbf{复核证书数据}\\[1pt]
+      \footnotesize 数据尚未发布。发布后用区间算术检查附录 B 的十五条条件。
+  \end{enumerate}
+
+  \vfill
+  \centering
+  谢谢
+\end{frame}
+
+\end{document}

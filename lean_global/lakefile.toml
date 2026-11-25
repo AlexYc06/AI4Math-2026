@@ -1,0 +1,9 @@
+name = "lean_global"
+defaultTargets = ["Main"]
+
+[[require]]
+name = "mathlib"
+path = "E:/Coding/Deepseek harness/ai4math/lean_experiment/vendor/mathlib4"
+
+[[lean_lib]]
+name = "Main"
