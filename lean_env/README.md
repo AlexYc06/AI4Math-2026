@@ -24,7 +24,7 @@ lake build Main
 
 ## 怎么用（重要）
 
-**不要**走 elan 的 shim（`C:\Users\yichen\.elan\bin\lean.exe`）。在本会话里它会触发下载并失败：
+**不要**走 elan 的 shim。在本会话里它会触发下载并失败：
 
 ```
 error: error during download
